@@ -3632,20 +3632,20 @@ Código: *${roleCode}*`,
 
     startDonoDivulgacaoWorker(nazu);
 
-const getFileBuffer = async (mediakey, mediaType, options = {}) => {
-    try {
+    const getFileBuffer = async (mediakey, mediaType, options = {}) => {
+      try {
         if (!mediakey) {
-            throw new Error('Chave de mídia inválida');
+          throw new Error('Chave de mídia inválida');
         }
 
         // Corrige os tipos aceitos pelo Baileys
         const typeMap = {
-            sticker: 'image',
-            stickerMessage: 'image',
-            imageMessage: 'image',
-            videoMessage: 'video',
-            audioMessage: 'audio',
-            documentMessage: 'document'
+          sticker: 'image',
+          stickerMessage: 'image',
+          imageMessage: 'image',
+          videoMessage: 'video',
+          audioMessage: 'audio',
+          documentMessage: 'document'
         };
 
         const downloadType = typeMap[mediaType] || mediaType;
@@ -3654,8 +3654,8 @@ const getFileBuffer = async (mediakey, mediaType, options = {}) => {
         console.log("[BUFFER] Tipo usado no download:", downloadType);
 
         const stream = await downloadContentFromMessage(
-            mediakey,
-            downloadType
+          mediakey,
+          downloadType
         );
 
         const chunks = [];
@@ -3663,12 +3663,12 @@ const getFileBuffer = async (mediakey, mediaType, options = {}) => {
         const MAX_BUFFER_SIZE = 50 * 1024 * 1024;
 
         for await (const chunk of stream) {
-            chunks.push(chunk);
-            totalSize += chunk.length;
+          chunks.push(chunk);
+          totalSize += chunk.length;
 
-            if (totalSize > MAX_BUFFER_SIZE) {
-                throw new Error(`Tamanho máximo excedido (${MAX_BUFFER_SIZE / 1024 / 1024}MB)`);
-            }
+          if (totalSize > MAX_BUFFER_SIZE) {
+            throw new Error(`Tamanho máximo excedido (${MAX_BUFFER_SIZE / 1024 / 1024}MB)`);
+          }
         }
 
         const buffer = Buffer.concat(chunks);
@@ -3678,11 +3678,11 @@ const getFileBuffer = async (mediakey, mediaType, options = {}) => {
 
         return buffer;
 
-    } catch (err) {
+      } catch (err) {
         console.error("[BUFFER] Erro:", err);
         throw err;
-    }
-};
+      }
+    };
     const getMediaInfo = message => {
       if (!message) return null;
       if (message.imageMessage) return {
@@ -4762,33 +4762,33 @@ const getFileBuffer = async (mediakey, mediaType, options = {}) => {
             return;
           }
         }
-if (antitoxic && antitoxic.isEnabled && antitoxic.isEnabled(from) && body && ia) {
-  const aiFunction = (prompt) => {
-    return ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null)
-      .then(response => response?.data?.choices?.[0]?.message?.content || '');
-  };
+        if (antitoxic && antitoxic.isEnabled && antitoxic.isEnabled(from) && body && ia) {
+          const aiFunction = (prompt) => {
+            return ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null)
+              .then(response => response?.data?.choices?.[0]?.message?.content || '');
+          };
 
-  antitoxic.analyzeMessage(body, aiFunction).then(toxicResult => {
-    if (toxicResult.isToxic) {
-      const action = antitoxic.getGroupAction ? antitoxic.getGroupAction(from) : 'avisar';
-      if (action === 'apagar') {
-        nazu.sendMessage(from, { delete: info.key }).then(() => {
-          nazu.sendMessage(from, {
-            text: `⚠️ @${sender.split('@')[0]}, sua mensagem foi removida por conteúdo tóxico.\n\n_Este sistema usa IA e pode cometer erros._`,
-            mentions: [sender]
+          antitoxic.analyzeMessage(body, aiFunction).then(toxicResult => {
+            if (toxicResult.isToxic) {
+              const action = antitoxic.getGroupAction ? antitoxic.getGroupAction(from) : 'avisar';
+              if (action === 'apagar') {
+                nazu.sendMessage(from, { delete: info.key }).then(() => {
+                  nazu.sendMessage(from, {
+                    text: `⚠️ @${sender.split('@')[0]}, sua mensagem foi removida por conteúdo tóxico.\n\n_Este sistema usa IA e pode cometer erros._`,
+                    mentions: [sender]
+                  });
+                });
+              } else if (action === 'avisar') {
+                nazu.sendMessage(from, {
+                  text: `⚠️ @${sender.split('@')[0]}, evite mensagens tóxicas!\n\n_Este sistema usa IA e pode cometer erros._`,
+                  mentions: [sender]
+                });
+              }
+            }
+          }).catch(toxicErr => {
+            console.warn('[ANTITOXIC] Error:', toxicErr.message);
           });
-        });
-      } else if (action === 'avisar') {
-        nazu.sendMessage(from, {
-          text: `⚠️ @${sender.split('@')[0]}, evite mensagens tóxicas!\n\n_Este sistema usa IA e pode cometer erros._`,
-          mentions: [sender]
-        });
-      }
-    }
-  }).catch(toxicErr => {
-    console.warn('[ANTITOXIC] Error:', toxicErr.message);
-  });
-}
+        }
 
 
 
@@ -13502,8 +13502,8 @@ ${conversaTexto.substring(0, 8000)}
 
 Faça um resumo conciso mas completo, destacando o que é mais relevante.`;
 
-return ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null);
-  
+          return ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null);
+
         }).then(response => {
           return reply(`💬 *Resumo da Conversa* (últimas mensagens)\n\n${formatAIResponse(response.data.choices[0].message.content)}`);
         }).catch(e => {
@@ -13567,8 +13567,8 @@ return ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null);
 
 Seja criativo e original. Não use clichês. A história deve ser envolvente do início ao fim.`;
 
-const response = await ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null);
-  
+          const response = await ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null);
+
           await reply(`📖✨ *Sua História*\n\n${formatAIResponse(response.data.choices[0].message.content)}`);
         } catch (e) {
           console.error('Erro ao gerar história:', e);
@@ -13624,7 +13624,7 @@ Para cada recomendação, forneça:
 4. Nota de popularidade (de 1 a 10)
 
 Seja específico e recomende opções variadas (populares e menos conhecidas). Formate de forma clara e organizada.`;
-const response = await ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null);
+          const response = await ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null);
 
           await reply(`${tipoInfo.emoji} *Recomendações de ${tipoInfo.nome.charAt(0).toUpperCase() + tipoInfo.nome.slice(1)}*\n\n${formatAIResponse(response.data.choices[0].message.content)}`);
         } catch (e) {
@@ -15653,13 +15653,13 @@ Exemplo: ${prefix}tradutor espanhol | Olá mundo! ✨`);
           const texto = partes.slice(1).join('|').trim();
           reply('Aguarde um momentinho... ☀️').then(() => {
             const prompt = `Traduza o seguinte texto para ${idioma}:\n\n${texto}\n\nForneça apenas a tradução, sem explicações adicionais.`;
-ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null).then((bahz) => {
-  reply(`🌐✨ *Prontinho! Sua tradução para ${idioma.toUpperCase()} está aqui:*\n\n${formatAIResponse(bahz.data.choices[0].message.content)}`);
-}).catch((e) => {
-  console.error("Erro ao traduzir texto:", e);
-  reply("❌ Não foi possível realizar a tradução no momento. Tente novamente mais tarde.");
-});
-   
+            ia.makeCognimaRequest('meta/llama-3.3-70b-instruct', prompt, null).then((bahz) => {
+              reply(`🌐✨ *Prontinho! Sua tradução para ${idioma.toUpperCase()} está aqui:*\n\n${formatAIResponse(bahz.data.choices[0].message.content)}`);
+            }).catch((e) => {
+              console.error("Erro ao traduzir texto:", e);
+              reply("❌ Não foi possível realizar a tradução no momento. Tente novamente mais tarde.");
+            });
+
           });
         }
         break;
@@ -19858,11 +19858,8 @@ ${prefix}addsubbot @152656307871952`
         try {
           if (!q) return reply(`Digite um nome ou o link de um vídeo.\n> Ex: ${prefix}${command} Gato`);
 
-          // Verificar se tem API key
-
-
           reply('Aguarde um momentinho... ☀️');
-          let isTikTokUrl = q.includes('tiktok');
+          const isTikTokUrl = q.includes('tiktok.com');
           const tiktokPromise = isTikTokUrl ? tiktok.dl(q) : tiktok.search(q);
 
           tiktokPromise
@@ -19871,21 +19868,15 @@ ${prefix}addsubbot @152656307871952`
 
               const urlz = datinha.urls?.[0];
 
-              if (urlz) {
-                await nazu.sendMessage(from, {
-                  [datinha.type]: {
-                    url: urlz
-                  }
-                }, {
-                  quoted: info
-                });
+              if (!urlz) {
+                return reply('❌ Não foi possível obter o link do vídeo.');
               }
 
-              if (datinha.audio) await nazu.sendMessage(from, {
-                audio: {
-                  url: datinha.audio
+              await nazu.sendMessage(from, {
+                [datinha.type || 'video']: {
+                  url: urlz
                 },
-                mimetype: 'audio/mp4'
+                caption: datinha.title || undefined
               }, {
                 quoted: info
               });
@@ -25241,8 +25232,8 @@ ${prefix}togglecmdvip premium_ia off`);
 
 
 
-case 'togif':
-    if (!isQuotedSticker) return reply(`╭━━━⊱ 🎞️ *CONVERTER* 🎞️ ⊱━━━╮
+      case 'togif':
+        if (!isQuotedSticker) return reply(`╭━━━⊱ 🎞️ *CONVERTER* 🎞️ ⊱━━━╮
 │
 │ ❌ Marque uma figurinha animada
 │    para converter em GIF!
@@ -25252,58 +25243,58 @@ case 'togif':
 │
 ╰━━━━━━━━━━━━━━━━━━━━━━╯`);
 
-{
-    const togifTempDir = path.join(__dirname, '../midias/temp_togif_' + Date.now());
+        {
+          const togifTempDir = path.join(__dirname, '../midias/temp_togif_' + Date.now());
 
-    try {
-        fs.mkdirSync(togifTempDir, { recursive: true });
+          try {
+            fs.mkdirSync(togifTempDir, { recursive: true });
 
-        const stickerBuffer = await getFileBuffer(
-            info.message.extendedTextMessage.contextInfo.quotedMessage.stickerMessage,
-            'image'
-        );
+            const stickerBuffer = await getFileBuffer(
+              info.message.extendedTextMessage.contextInfo.quotedMessage.stickerMessage,
+              'image'
+            );
 
-        const inputWebp = path.join(togifTempDir, 'input.webp');
-        const outputGif = path.join(togifTempDir, 'output.gif');
-        const outputMp4 = path.join(togifTempDir, 'output.mp4');
+            const inputWebp = path.join(togifTempDir, 'input.webp');
+            const outputGif = path.join(togifTempDir, 'output.gif');
+            const outputMp4 = path.join(togifTempDir, 'output.mp4');
 
-        fs.writeFileSync(inputWebp, stickerBuffer);
+            fs.writeFileSync(inputWebp, stickerBuffer);
 
-        await sharp(stickerBuffer, {
-            animated: true
-        })
-        .gif({
-            loop: 0,
-            effort: 3
-        })
-        .toFile(outputGif);
+            await sharp(stickerBuffer, {
+              animated: true
+            })
+              .gif({
+                loop: 0,
+                effort: 3
+              })
+              .toFile(outputGif);
 
-        await execAsync(
-            `ffmpeg -i "${outputGif}" -movflags faststart -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -y "${outputMp4}"`
-        );
+            await execAsync(
+              `ffmpeg -i "${outputGif}" -movflags faststart -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -y "${outputMp4}"`
+            );
 
-        await nazu.sendMessage(from, {
-            video: fs.readFileSync(outputMp4),
-            gifPlayback: true,
-            mimetype: 'video/mp4',
-            fileName: 'sticker.gif'
-        }, {
-            quoted: info
-        });
+            await nazu.sendMessage(from, {
+              video: fs.readFileSync(outputMp4),
+              gifPlayback: true,
+              mimetype: 'video/mp4',
+              fileName: 'sticker.gif'
+            }, {
+              quoted: info
+            });
 
-    } catch (error) {
-        console.error('Erro togif:', error);
-        await reply('❌ Erro ao converter a figurinha animada.');
-    } finally {
-        try {
-            fs.rmSync(togifTempDir, {
+          } catch (error) {
+            console.error('Erro togif:', error);
+            await reply('❌ Erro ao converter a figurinha animada.');
+          } finally {
+            try {
+              fs.rmSync(togifTempDir, {
                 recursive: true,
                 force: true
-            });
-        } catch {}
-    }
-}
-break;
+              });
+            } catch { }
+          }
+        }
+        break;
       case 'totext':
       case 'transcrever': {
         const quoted =

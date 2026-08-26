@@ -48,7 +48,6 @@ function request(url) {
 
 async function search(query) {
 
-
   const checkAPI = await verificarAPI()
   if (checkAPI !== true) {
     return { ok: false, msg: checkAPI }
@@ -59,14 +58,14 @@ async function search(query) {
       return { ok: false, msg: 'Termo de pesquisa inválido' }
     }
 
-    const cached = getCached(`search:${query}`)
+    const cacheKey = `search:${query}`
+    const cached = getCached(cacheKey)
     if (cached) return { ok: true, ...cached, cached: true }
 
     const { apikey_vex, site_vex } = CONFIG_FILE
     const url = `${site_vex}/api/pesquisa/tiktok?apikey=${apikey_vex}&query=${encodeURIComponent(query)}`
-    
-    const data = await request(url)
 
+    const data = await request(url)
 
     const checkAfter = await verificarAPI(data)
     if (checkAfter !== true) {
@@ -77,21 +76,37 @@ async function search(query) {
       return { ok: false, msg: 'Nenhum vídeo encontrado' }
     }
 
-    const video = data.results[0]
 
-    const result = {
-      criador: 'null',
-      title: video.title,
-      urls: [video.no_watermark],
-      type: 'video',
-      mime: 'video/mp4',
-      audio: video.music?.play || null,
-      cover: video.cover,
-      link: video.link,
-      views: video.views
+    const video = data.results[Math.floor(Math.random() * data.results.length)]
+
+    if (!video?.url) {
+      return { ok: false, msg: 'Vídeo selecionado sem URL válida' }
     }
 
-    setCache(`search:${query}`, result)
+
+    const downloaded = await dl(video.url)
+
+    if (!downloaded.ok) {
+      return downloaded
+    }
+
+    const result = {
+      criador: 'DevTokyo',
+      title: downloaded.title || video.title,
+      duration: video.duration,
+      type: downloaded.type,
+      mime: downloaded.mime,
+      urls: downloaded.urls,
+      author: downloaded.author || video.author,
+      username: downloaded.username || video.username,
+      views: downloaded.views,
+      likes: downloaded.likes,
+      comments: downloaded.comments,
+      shares: downloaded.shares,
+      link: video.url
+    }
+
+    setCache(cacheKey, result)
 
     return { ok: true, ...result }
 
@@ -117,10 +132,10 @@ async function dl(url) {
 
     const { apikey_vex, site_vex } = CONFIG_FILE
     const api = `${site_vex}/api/downloads/tiktok?apikey=${apikey_vex}&query=${encodeURIComponent(url)}`
-    
+
     const data = await request(api)
 
-  const checkAfter = await verificarAPI(data)
+    const checkAfter = await verificarAPI(data)
     if (checkAfter !== true) {
       return { ok: false, msg: checkAfter }
     }
@@ -131,7 +146,7 @@ async function dl(url) {
     }
 
     const response = {
-      criador: 'Hiudy',
+      criador: 'DevTokyo',
       title: result.desc,
       type: result.type,
       mime: 'video/mp4',
