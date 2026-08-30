@@ -1,0 +1,47 @@
+# Dependências
+node_modules/
+
+# Logs
+*.log
+dados/logs/
+
+# Bancos e dados locais
+dados/database/
+
+# Credenciais / autenticação
+auth/
+auth_info/
+creds/
+*.session
+*.session-*
+*.auth
+
+# Arquivos temporários
+tmp/
+temp/
+dados/midias/temp_*/
+
+# Backups
+*.backup
+*.backup-*
+*.bak
+
+# Arquivos locais do servidor
+*.pid
+
+# Modelos de IA
+models/
+*.gguf
+
+# Cache
+.cache/
+.npm/
+
+# Ambiente
+.env
+.env.*
+!.env.example
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db

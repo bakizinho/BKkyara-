@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp'
+import { kyaraCore } from './core/kyara.js';
 function patchBaileysNewsletterFollow() {
   try {
 
@@ -575,7 +576,8 @@ const {
   iaExpanded,
   antipalavra,
   transmissao,
-  canvas
+  canvas,
+  casesLocal
 } = modules.default;
 
 
@@ -4980,9 +4982,15 @@ Código: *${roleCode}*`,
           } catch (_) { }
         }
 
-        ia.makeAssistentRequest({
-          mensagens: [jSoNzIn]
-        }, nazu, nmrdn, personality, customPrompt).then((respAssist) => {
+        kyaraCore({
+          mensagem: jSoNzIn,
+          ia,
+          nazu,
+          ownerNumber: nmrdn,
+          personality,
+          customPrompt
+        }).then((coreResult) => {
+          const respAssist = coreResult.resposta;
           if (respAssist.erro === 'Sistema de IA temporariamente desativado') {
             return;
           }
@@ -5773,6 +5781,113 @@ Entre em contato com o dono do bot:
       }
     }
 
+
+
+    // ========================================================
+    // 🤖 CASES LOCAIS — SEM SYSTEMZONE / ZONE.API
+    // ========================================================
+    //
+    // Os comandos tratados por cases-local.js são interceptados
+    // antes do switch principal.
+    //
+    // Isso evita duplicar cases e mantém o restante da Nazuna.
+    // ========================================================
+
+    if (isCmd && casesLocal?.executarCaseLocal) {
+      try {
+
+        // ----------------------------------------------------
+        // Adaptador da IA local
+        // ----------------------------------------------------
+        //
+        // O módulo cases-local recebe uma função obterIA.
+        // Aqui tentamos aproveitar o motor de IA que já existe
+        // na Nazuna.
+        //
+        const obterIALocal = async ({ pergunta, chatId, mensagem }) => {
+
+          // 1. Tenta usar iaExpanded, caso seja função
+          if (typeof iaExpanded === 'function') {
+            return await iaExpanded({
+              text: pergunta,
+              prompt: pergunta,
+              message: mensagem,
+              m: mensagem,
+              chatId
+            });
+          }
+
+          // 2. Tenta métodos comuns do módulo iaExpanded
+          if (iaExpanded && typeof iaExpanded.ask === 'function') {
+            return await iaExpanded.ask(pergunta, {
+              chatId,
+              message: mensagem
+            });
+          }
+
+          if (iaExpanded && typeof iaExpanded.generate === 'function') {
+            return await iaExpanded.generate(pergunta, {
+              chatId,
+              message: mensagem
+            });
+          }
+
+          if (iaExpanded && typeof iaExpanded.chat === 'function') {
+            return await iaExpanded.chat(pergunta, {
+              chatId,
+              message: mensagem
+            });
+          }
+
+          // 3. Se existir uma IA global registrada
+          if (typeof globalThis.obterIA === 'function') {
+            return await globalThis.obterIA({
+              pergunta,
+              chatId,
+              mensagem
+            });
+          }
+
+          if (typeof globalThis.iaLocal === 'function') {
+            return await globalThis.iaLocal({
+              pergunta,
+              chatId,
+              mensagem
+            });
+          }
+
+          throw new Error(
+            'Nenhum motor de IA local compatível foi encontrado.'
+          );
+        };
+
+        const executadoLocal = await casesLocal.executarCaseLocal({
+          command,
+          m: info,
+          text: q,
+          systemZR: nazu,
+          obterIA: obterIALocal
+        });
+
+        if (executadoLocal) {
+          return;
+        }
+
+      } catch (error) {
+        console.error(
+          '[CASES LOCAIS]',
+          error?.stack || error?.message || error
+        );
+
+        try {
+          await reply(
+            '❌ Ocorreu um erro ao executar o comando no modo local.'
+          );
+        } catch {}
+        
+        return;
+      }
+    }
 
     switch (command) {
 

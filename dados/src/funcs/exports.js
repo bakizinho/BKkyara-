@@ -39,6 +39,23 @@ async function loadModules() {
     modulesPromise = (async () => {
         const modules = {};
 
+        // --- cases locais ---
+        const casesLocalMod = await import('../modules/cases-local.js');
+        modules.casesLocal = casesLocalMod.default ?? casesLocalMod;
+
+
+        // --- módulos internos ---
+        const [atualizacoesMod, comandoInfoMod, discordiaMod] = await Promise.all([
+            import('../modules/atualizacoes.js'),
+            import('../modules/comando-info.js'),
+            import('../modules/discordia.js')
+        ]);
+
+        modules.atualizacoes = atualizacoesMod.default ?? atualizacoesMod;
+        modules.comandoInfo = comandoInfoMod.default ?? comandoInfoMod;
+        modules.discordia = discordiaMod.default ?? discordiaMod;
+
+
         // --- downloads (ESM via dynamic import) ---
         const [
             youtubeMod,

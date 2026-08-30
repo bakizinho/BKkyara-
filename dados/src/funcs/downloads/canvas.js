@@ -35,32 +35,40 @@ async function gerarbrat(query, bg, text_color, blur) {
     if (checkAPI !== true) return { ok: false, msg: checkAPI };
 
     try {
-        if (!query) return { ok: false, msg: 'O texto (query) é obrigatório' };
+        if (!query) {
+            return { ok: false, msg: 'O texto (query) é obrigatório' };
+        }
 
         const cacheKey = `brat:${query.toLowerCase()}:${bg}:${text_color}:${blur}`;
         const cached = getCached(cacheKey);
-        if (cached) return { ok: true, ...cached, cached: true };
 
-        const { apikey_vex, site_vex } = CONFIG_FILE;
+        if (cached) {
+            return { ok: true, ...cached, cached: true };
+        }
 
-        // Monta a URL que retorna a imagem diretamente
-        let url = `${site_vex}/api/canvas/brat?apikey=${apikey_vex}&query=${encodeURIComponent(query)}`;
-        if (bg) url += `&bg=${encodeURIComponent(bg)}`;
-        if (text_color) url += `&text_color=${encodeURIComponent(text_color)}`;
-        if (blur) url += `&blur=${encodeURIComponent(blur)}`;
+        const params = new URLSearchParams({
+            query,
+            bg: bg || 'white',
+            text_color: text_color || 'black',
+            blur: blur || '0'
+        });
+
+        const url = `http://127.0.0.1:3000/api/canvas/brat?${params.toString()}`;
 
         const result = {
-            criador: 'Tokyo',
+            criador: 'Nazuna',
             type: 'image',
             mime: 'image/webp',
             query,
-            url: url // A URL é o próprio endpoint, pois ele já entrega a imagem
+            url
         };
 
         setCache(cacheKey, result);
+
         return { ok: true, ...result };
 
     } catch (err) {
+        console.error('[BRAT] Erro:', err);
         return { ok: false, msg: err.message };
     }
 }
