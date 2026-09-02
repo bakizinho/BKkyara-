@@ -88,14 +88,14 @@ async function enviarBotoesNazuna(nazu, jid, quoted, prefix = '/', sender = null
       {
         name: 'quick_reply',
         buttonParamsJson: JSON.stringify({
-          display_text: '📥 Downloads',
+          display_text: '📥 DOWNLOADS',
           id: `${prefix}menudown`
         })
       },
       {
         name: 'quick_reply',
         buttonParamsJson: JSON.stringify({
-          display_text: '🎨 Logos',
+          display_text: '🎨 LOGOS',
           id: `${prefix}menulogos`
         })
       },
@@ -273,6 +273,7 @@ async function enviarBotoesNazuna(nazu, jid, quoted, prefix = '/', sender = null
 import {
   downloadContentFromMessage,
   generateWAMessageFromContent,
+  prepareWAMessageMedia,
   generateWAMessage,
   getContentType,
   useMultiFileAuthState,
@@ -2038,7 +2039,171 @@ async function NazuninhaBotExec(nazu, info, store, messagesCache, rentalExpirati
       );
     }
 
-    const body = getMessageText(info.message) || info?.text || '';
+    
+    // ============================================================
+    // KYARA INTERACTIVE SESSION LOCK
+    // Protege seleções interativas contra cliques de terceiros.
+    // ============================================================
+
+    const KYARA_INTERACTIVE_TTL = 5 * 60 * 1000;
+
+    if (!global.kyaraInteractiveSessions) {
+      global.kyaraInteractiveSessions = new Map();
+    }
+
+    function kyaraCreateInteractiveSession({
+      messageId,
+      chatId,
+      ownerId,
+      type = 'generic',
+      data = {}
+    }) {
+      if (!messageId || !chatId || !ownerId) return false;
+
+      global.kyaraInteractiveSessions.set(String(messageId), {
+        messageId: String(messageId),
+        chatId: String(chatId),
+        ownerId: String(ownerId),
+        type,
+        data,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + KYARA_INTERACTIVE_TTL
+      });
+
+      return true;
+    }
+
+    function kyaraGetInteractiveSession(messageId) {
+      if (!messageId) return null;
+
+      const key = String(messageId);
+      const session = global.kyaraInteractiveSessions.get(key);
+
+      if (!session) return null;
+
+      if (Date.now() > session.expiresAt) {
+        global.kyaraInteractiveSessions.delete(key);
+        return null;
+      }
+
+      return session;
+    }
+
+    function kyaraDeleteInteractiveSession(messageId) {
+      if (!messageId) return;
+      global.kyaraInteractiveSessions.delete(String(messageId));
+    }
+
+    function kyaraCleanupInteractiveSessions() {
+      const now = Date.now();
+
+      for (const [key, session] of global.kyaraInteractiveSessions) {
+        if (!session || now > session.expiresAt) {
+          global.kyaraInteractiveSessions.delete(key);
+        }
+      }
+    }
+
+    if (!global.kyaraInteractiveCleanupStarted) {
+      global.kyaraInteractiveCleanupStarted = true;
+
+      setInterval(() => {
+        try {
+          kyaraCleanupInteractiveSessions();
+        } catch {}
+      }, 60 * 1000);
+    }
+
+    // ============================================================
+    // IDENTIFICA QUEM FEZ O CLIQUE
+    // ============================================================
+
+    function kyaraGetInteractiveClicker(message) {
+      return (
+        message?.key?.participant ||
+        message?.participant ||
+        message?.interactiveResponseMessage
+          ?.contextInfo
+          ?.participant ||
+        null
+      );
+    }
+
+    // ============================================================
+    // KYARA INTERACTIVE SECURITY GUARD
+    // ============================================================
+
+    const kyaraInteractiveResponse =
+      info.message?.interactiveResponseMessage;
+
+    if (kyaraInteractiveResponse) {
+
+      const clickedMessageId =
+        kyaraInteractiveResponse?.contextInfo?.stanzaId ||
+        kyaraInteractiveResponse?.contextInfo?.quotedMessageId ||
+        kyaraInteractiveResponse?.contextInfo?.messageId ||
+        null;
+
+      const session =
+        kyaraGetInteractiveSession(clickedMessageId);
+
+      if (session) {
+
+        const clickerId = String(
+          kyaraGetInteractiveClicker(info) ||
+          sender ||
+          ''
+        );
+
+        const ownerId = String(session.ownerId);
+        const chatId = String(session.chatId);
+
+        // ========================================================
+        // MESMO CHAT + USUÁRIO DIFERENTE = BLOQUEAR
+        // ========================================================
+
+        if (
+          chatId === String(from) &&
+          clickerId &&
+          clickerId !== ownerId
+        ) {
+
+          console.log(
+            '[INTERACTIVE SECURITY] Clique BLOQUEADO:',
+            clickerId,
+            '-> sessão pertence a',
+            ownerId
+          );
+
+          const ownerNumber =
+            ownerId.split('@')[0];
+
+          await reply(
+            `🔒 *SELEÇÃO PROTEGIDA*\n\n` +
+            `Essa seleção pertence a @${ownerNumber}.\n\n` +
+            `💡 Faça o comando novamente para abrir sua própria seleção.`,
+            {
+              mentions: [ownerId]
+            }
+          );
+
+          return;
+        }
+
+        console.log(
+          '[INTERACTIVE SECURITY] Clique AUTORIZADO:',
+          clickerId,
+          '->',
+          session.type
+        );
+
+        // A sessão pode ser usada uma vez.
+        kyaraDeleteInteractiveSession(clickedMessageId);
+      }
+    }
+
+
+const body = getMessageText(info.message) || info?.text || '';
 
 
 
@@ -21073,6 +21238,28 @@ Se não definir cores, a API usa padrão automaticamente.`
 
           mediaBuffer = fs.readFileSync(mediaPath);
 
+          // Prepara a imagem para aparecer no HEADER do Native Flow
+          let menuImageMessage = null;
+
+          if (!useVideo) {
+            try {
+              const preparedMenuMedia = await prepareWAMessageMedia(
+                { image: mediaBuffer },
+                { upload: nazu.waUploadToServer }
+              );
+
+              menuImageMessage =
+                preparedMenuMedia?.imageMessage || null;
+
+              console.log('[MENU] Imagem preparada para Native Flow.');
+            } catch (mediaError) {
+              console.error(
+                '[MENU] Falha ao preparar imagem:',
+                mediaError?.message || mediaError
+              );
+            }
+          }
+
           const customDesign = getMenuDesignWithDefaults(
             customBotName,
             pushname
@@ -21097,28 +21284,28 @@ Se não definir cores, a API usa padrão automaticamente.`
             {
               name: 'quick_reply',
               buttonParamsJson: JSON.stringify({
-                display_text: '📥 Downloads',
+                display_text: '📥 DOWNLOADS',
                 id: `${prefix}menudown`
               })
             },
             {
               name: 'quick_reply',
               buttonParamsJson: JSON.stringify({
-                display_text: '🎨 Logos',
+                display_text: '🎨 LOGOS',
                 id: `${prefix}menulogos`
               })
             },
             {
               name: 'quick_reply',
               buttonParamsJson: JSON.stringify({
-                display_text: '📝 Edits',
+                display_text: '🛠️ EDITS',
                 id: `${prefix}menuedits`
               })
             },
             {
               name: 'quick_reply',
               buttonParamsJson: JSON.stringify({
-                display_text: '🛡️ Admin',
+                display_text: '🛡️ ADMIN',
                 id: `${prefix}menuadm`
               })
             },
@@ -21132,9 +21319,7 @@ Se não definir cores, a API usa padrão automaticamente.`
           ];
 
           const textoInterativo =
-            `🌸 *${customBotName}*\\n\\n` +
-            `👤 @${sender?.split('@')[0] || pushname || 'usuário'}\\n\\n` +
-            `📂 *Escolha uma categoria abaixo:*`;
+            'Escolha uma categoria abaixo.';
 
           const msg = generateWAMessageFromContent(
             from,
@@ -21147,24 +21332,38 @@ Se não definir cores, a API usa padrão automaticamente.`
                   },
 
                   interactiveMessage: {
+
+                    // ==================================================
+                    // HEADER COM A IMAGEM DA KYARA
+                    // ==================================================
+
+                    header: menuImageMessage
+                      ? {
+                          hasMediaAttachment: true,
+                          imageMessage: menuImageMessage
+                        }
+                      : {
+                          hasMediaAttachment: false
+                        },
+
+                    // ==================================================
+                    // TEXTO EXATAMENTE COMO NA REFERÊNCIA
+                    // ==================================================
+
                     body: {
-                      text: textoInterativo,
-                      contextInfo: sender
-                        ? {
-                            mentionedJid: [sender]
-                          }
-                        : undefined
+                      text: 'Escolha uma categoria abaixo.'
                     },
 
-                    footer: {
-                      text: '© Kyara'
-                    },
+                    // ==================================================
+                    // BOTÕES NATIVOS DO WHATSAPP
+                    // ==================================================
 
                     nativeFlowMessage: {
                       buttons,
                       messageParamsJson: '{}',
                       messageVersion: 1
                     }
+
                   }
                 }
               }
@@ -22193,61 +22392,625 @@ Precisa de ajuda? Entre em contato:
           await reply("❌ Ocorreu um erro ao carregar o menu de stickers");
         }
         break;
-        async function sendMenuWithMedia(menuType, menuFunction) {
-          // Verifica se o grupo tem personalização
-          let customBotName = nomebot;
-          let customMediaPath = null;
+        // ============================================================
+        // KYARA INTERACTIVE MENU ENGINE
+        //
+        // Todos os menus enviados por sendMenuWithMedia()
+        // passam a usar Native Flow.
+        //
+        // O menu principal continua público.
+        // ============================================================
 
-          if (isGroup && isGroupCustomizationEnabled()) {
-            const groupCustom = getGroupCustomization(from);
-            if (groupCustom) {
-              if (groupCustom.customName) {
-                customBotName = groupCustom.customName;
-              }
-              if (groupCustom.customPhoto && fs.existsSync(groupCustom.customPhoto)) {
-                customMediaPath = groupCustom.customPhoto;
+        async function sendMenuWithMedia(menuType, menuFunction) {
+          try {
+            // --------------------------------------------------------
+            // PERSONALIZAÇÃO DO GRUPO
+            // --------------------------------------------------------
+
+            let customBotName = nomebot;
+            let customMediaPath = null;
+
+            if (
+              isGroup &&
+              isGroupCustomizationEnabled()
+            ) {
+              const groupCustom =
+                getGroupCustomization(from);
+
+              if (groupCustom) {
+                if (groupCustom.customName) {
+                  customBotName =
+                    groupCustom.customName;
+                }
+
+                if (
+                  groupCustom.customPhoto &&
+                  fs.existsSync(groupCustom.customPhoto)
+                ) {
+                  customMediaPath =
+                    groupCustom.customPhoto;
+                }
               }
             }
+
+            // --------------------------------------------------------
+            // MÍDIA
+            // --------------------------------------------------------
+
+            let mediaPath;
+            let mediaBuffer;
+
+            if (customMediaPath) {
+              mediaPath = customMediaPath;
+            } else {
+              const menuImagePath =
+                __dirname + '/../midias/menu.jpg';
+
+              const menuVideoPath =
+                __dirname + '/../midias/menu.mp4';
+
+              // IMAGEM TEM PRIORIDADE
+              if (fs.existsSync(menuImagePath)) {
+                mediaPath = menuImagePath;
+              } else if (fs.existsSync(menuVideoPath)) {
+                mediaPath = menuVideoPath;
+              } else {
+                mediaPath = null;
+              }
+            }
+
+            if (mediaPath && fs.existsSync(mediaPath)) {
+              mediaBuffer =
+                fs.readFileSync(mediaPath);
+            }
+
+            // --------------------------------------------------------
+            // GERA O TEXTO ORIGINAL DO MENU
+            // --------------------------------------------------------
+
+            const customDesign =
+              getMenuDesignWithDefaults(
+                customBotName,
+                pushname
+              );
+
+            const menuText =
+              typeof menuFunction === 'function'
+                ? await menuFunction(
+                    prefix,
+                    customBotName,
+                    pushname,
+                    customDesign
+                  )
+                : 'Menu não disponível';
+
+            // --------------------------------------------------------
+            // BOTÕES ESPECÍFICOS POR MENU
+            // --------------------------------------------------------
+
+            const menuButtons = {
+
+              // ======================================================
+              // DOWNLOADS
+              // ======================================================
+
+              downloads: [
+                ['🎵 PLAY', 'play'],
+                ['🎵 PLAY2', 'play2'],
+                ['🎬 PLAYVID', 'playvid'],
+                ['🎵 TIKTOK', 'tiktok'],
+                ['📸 INSTAGRAM', 'instagram'],
+                ['📁 GDRIVE', 'gdrive'],
+                ['📁 MEDIAFIRE', 'mediafire'],
+                ['🐦 TWITTER', 'twitter'],
+                ['📌 PINTEREST', 'pinterest']
+              ],
+
+              // ======================================================
+              // LOGOS
+              // ======================================================
+
+              logotipos: [
+                ['🔥 AMONGUS', 'amongus'],
+                ['👑 ROYAL', 'royal'],
+                ['🤘 MASCOTE METAL', 'mascotemetal'],
+                ['🎆 FIREWORK', 'firework'],
+                ['🏖️ SUMMER BEACH', 'summerbeach'],
+                ['☁️ CLOUD SKY', 'cloudsky'],
+                ['💻 TECH STYLE', 'techstyle'],
+                ['🎨 WATERCOLOR', 'watercolor'],
+                ['✍️ GRAFFITI', 'graffiti']
+              ],
+
+              // ======================================================
+              // EDITS
+              // ======================================================
+
+              menuedits: [
+                ['📰 JORNAL', 'jornal'],
+                ['🎬 CINEMA', 'cinema'],
+                ['⚫ BLACKWHITE', 'blackwhite'],
+                ['🌫️ DESFOQUE', 'desfoque'],
+                ['😂 WOJAK', 'wojakreaction']
+              ],
+
+              // ======================================================
+              // ADMIN
+              // ======================================================
+
+              admin: [
+                ['👥 MEMBROS', 'menumembros'],
+                ['🛡️ ANTI-LINK', 'antilink'],
+                ['🚫 ANTI-SPAM', 'antispam'],
+                ['🔒 SÓ ADM', 'soadm'],
+                ['👋 BEM-VINDO', 'bemvindo'],
+                ['🔇 MUTE', 'mute'],
+                ['📊 STATS', 'groupstats']
+              ],
+
+              // ======================================================
+              // RPG
+              // ======================================================
+
+              menurpg: [
+                ['👤 PERFIL', 'perfilrpg'],
+                ['💰 CARTEIRA', 'carteira'],
+                ['🏆 TOP RPG', 'toprpg'],
+                ['🎒 INVENTÁRIO', 'inv'],
+                ['⚔️ ARENA', 'arena'],
+                ['🎯 DIÁRIO', 'diario'],
+                ['⛏️ MINE', 'mine'],
+                ['🎣 FISH', 'fish'],
+                ['🏠 CASA', 'casa']
+              ],
+
+              // ======================================================
+              // STICKERS
+              // ======================================================
+
+              stickers: [
+                ['🎨 FIGURINHA', 'sticker'],
+                ['🖼️ FIGURINHA 2', 's'],
+                ['✏️ ATIVAR STICKER', 'autosticker']
+              ],
+
+              // ======================================================
+              // BRINCADEIRAS
+              // ======================================================
+
+              brincadeiras: [
+                ['❤️ BEIJAR', 'beijar'],
+                ['🤗 ABRAÇAR', 'abracar'],
+                ['👋 TAPAS', 'tapa'],
+                ['😂 RIR', 'rir'],
+                ['💋 ELOGIAR', 'elogiar']
+              ],
+
+              // ======================================================
+              // FERRAMENTAS
+              // ======================================================
+
+              ferramentas: [
+                ['🧮 CALCULADORA', 'calcular'],
+                ['🔳 QR CODE', 'qrcode'],
+                ['📝 NOTAS', 'nota'],
+                ['🌤️ CLIMA', 'clima'],
+                ['🔗 LINK', 'link']
+              ],
+
+              // ======================================================
+              // ALTERADORES
+              // ======================================================
+
+              alteradores: [
+                ['📝 TEXTO', 'styletext'],
+                ['🔤 FONTE', 'fonte'],
+                ['✨ EMOJI MIX', 'emojimix']
+              ],
+
+              // ======================================================
+              // MEMBROS
+              // ======================================================
+
+              membros: [
+                ['👤 PERFIL', 'perfil'],
+                ['📊 ATIVIDADE', 'checkativo'],
+                ['🏆 RANK', 'rank'],
+                ['👥 MEMBROS', 'listamembros']
+              ],
+
+              // ======================================================
+              // DONO
+              // ======================================================
+
+              dono: [
+                ['⚙️ CONFIG', 'config'],
+                ['📝 NOME BOT', 'nomebot'],
+                ['🖼️ FOTO BOT', 'fotobot'],
+                ['🖼️ FOTO MENU', 'fotomenu'],
+                ['🎵 ÁUDIO MENU', 'audiomenu']
+              ],
+
+              // ======================================================
+              // VIP
+              // ======================================================
+
+              vip: [
+                ['⭐ VIP', 'vip'],
+                ['ℹ️ INFO VIP', 'infovip']
+              ]
+            };
+
+            let definitions =
+              menuButtons[menuType] || [];
+
+            // --------------------------------------------------------
+            // REMOVE DUPLICADOS
+            // --------------------------------------------------------
+
+            const uniqueDefinitions = [];
+            const usedCommands = new Set();
+
+            for (const item of definitions) {
+              if (!Array.isArray(item)) continue;
+
+              const label = item[0];
+              const command = item[1];
+
+              if (!label || !command) continue;
+
+              if (usedCommands.has(command)) {
+                continue;
+              }
+
+              usedCommands.add(command);
+              uniqueDefinitions.push([
+                label,
+                command
+              ]);
+            }
+
+            // --------------------------------------------------------
+            // NATIVE FLOW BUTTONS
+            // --------------------------------------------------------
+
+            const buttons = uniqueDefinitions
+              .slice(0, 9)
+              .map(([label, command]) => ({
+                name: 'quick_reply',
+
+                buttonParamsJson:
+                  JSON.stringify({
+                    display_text: label,
+                    id: `${prefix}${command}`
+                  })
+              }));
+
+            // --------------------------------------------------------
+            // BOTÃO VOLTAR
+            // --------------------------------------------------------
+
+            buttons.push({
+              name: 'quick_reply',
+
+              buttonParamsJson:
+                JSON.stringify({
+                  display_text: '↩️ MENU PRINCIPAL',
+                  id: `${prefix}menu`
+                })
+            });
+
+            // --------------------------------------------------------
+            // BODY
+            // --------------------------------------------------------
+
+            const titleMap = {
+              downloads: '📥 MENU DOWNLOADS',
+              logotipos: '🎨 MENU LOGOS',
+              menuedits: '🛠️ MENU EDITS',
+              admin: '🛡️ MENU ADMIN',
+              menurpg: '🎮 MENU RPG',
+              stickers: '🎨 MENU FIGURINHAS',
+              brincadeiras: '🎮 MENU BRINCADEIRAS',
+              ferramentas: '🧰 MENU FERRAMENTAS',
+              alteradores: '✨ MENU ALTERADORES',
+              membros: '👥 MENU MEMBROS',
+              dono: '👑 MENU DO DONO',
+              vip: '⭐ MENU VIP'
+            };
+
+            const menuTitle =
+              titleMap[menuType] ||
+              `📂 MENU ${String(menuType).toUpperCase()}`;
+
+            // --------------------------------------------------------
+            // PREPARAR IMAGEM PARA NATIVE FLOW
+            // --------------------------------------------------------
+
+            let menuImageMessage = null;
+
+            if (mediaBuffer) {
+              try {
+                const preparedMenuMedia =
+                  await prepareWAMessageMedia(
+                    {
+                      image: mediaBuffer
+                    },
+                    {
+                      upload: nazu.waUploadToServer
+                    }
+                  );
+
+                menuImageMessage =
+                  preparedMenuMedia?.imageMessage ||
+                  null;
+
+              } catch (mediaError) {
+
+                console.error(
+                  '[MENU INTERACTIVE] Falha ao preparar imagem:',
+                  mediaError?.message ||
+                  mediaError
+                );
+              }
+            }
+
+            // --------------------------------------------------------
+            // MENSAGEM NATIVE FLOW
+            // --------------------------------------------------------
+
+            const msg =
+              generateWAMessageFromContent(
+                from,
+                {
+                  viewOnceMessage: {
+                    message: {
+
+                      messageContextInfo: {
+                        deviceListMetadata: {},
+                        deviceListMetadataVersion: 2
+                      },
+
+                      interactiveMessage: {
+
+                        ...(menuImageMessage
+                          ? {
+                              header: {
+                                hasMediaAttachment: true,
+                                imageMessage:
+                                  menuImageMessage
+                              }
+                            }
+                          : {}),
+
+                        body: {
+                          text:
+                            `${menuTitle}\n\n` +
+                            `Escolha uma opção abaixo.`
+                        },
+
+                        nativeFlowMessage: {
+                          buttons,
+
+                          messageParamsJson:
+                            '{}',
+
+                          messageVersion: 1
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  quoted: info,
+                  userJid: nazu?.user?.id
+                }
+              );
+
+            // --------------------------------------------------------
+            // NÓ DO WHATSAPP
+            // --------------------------------------------------------
+
+            const bizNode = {
+              tag: 'biz',
+
+              attrs: {
+                actual_actors: '2',
+                host_storage: '2',
+
+                privacy_mode_ts:
+                  String(
+                    Math.floor(Date.now() / 1000) -
+                    77980457
+                  )
+              },
+
+              content: [
+
+                {
+                  tag: 'interactive',
+
+                  attrs: {
+                    type: 'native_flow',
+                    v: '1'
+                  },
+
+                  content: [
+
+                    {
+                      tag: 'native_flow',
+
+                      attrs: {
+                        v: '9',
+                        name: 'mixed'
+                      }
+                    }
+                  ]
+                },
+
+                {
+                  tag: 'quality_control',
+
+                  attrs: {
+                    source_type: 'third_party'
+                  }
+                }
+              ]
+            };
+
+            const isGroupChat =
+              from.endsWith('@g.us');
+
+            const additionalNodes =
+              isGroupChat
+                ? [bizNode]
+                : [
+                    {
+                      tag: 'bot',
+
+                      attrs: {
+                        biz_bot: '1'
+                      }
+                    },
+
+                    bizNode
+                  ];
+
+            // --------------------------------------------------------
+            // ÁUDIO DO MENU
+            // --------------------------------------------------------
+
+            if (isMenuAudioEnabled()) {
+
+              const audioPath =
+                getMenuAudioPath();
+
+              if (
+                audioPath &&
+                fs.existsSync(audioPath)
+              ) {
+
+                const audioBuffer =
+                  fs.readFileSync(audioPath);
+
+                await nazu.sendMessage(
+                  from,
+
+                  {
+                    audio: audioBuffer,
+                    mimetype: 'audio/mpeg',
+                    ptt: false
+                  },
+
+                  {
+                    quoted: info
+                  }
+                );
+              }
+            }
+
+            // --------------------------------------------------------
+            // ENVIA NATIVE FLOW
+            // --------------------------------------------------------
+
+            await nazu.relayMessage(
+              from,
+              msg.message,
+              {
+                messageId: msg.key.id,
+                additionalNodes
+              }
+            );
+
+            // --------------------------------------------------------
+            // REGISTRA SESSÃO
+            //
+            // Menus de categoria também ficam associados ao usuário
+            // que abriu o menu. Porém o MENU PRINCIPAL continua público.
+            // --------------------------------------------------------
+
+            if (
+              typeof kyaraCreateInteractiveSession ===
+              'function'
+            ) {
+
+              kyaraCreateInteractiveSession({
+                messageId: msg.key.id,
+                chatId: from,
+                ownerId: sender,
+                type: `menu:${menuType}`,
+                data: {
+                  menuType
+                }
+              });
+
+            }
+
+            console.log(
+              `[MENU INTERACTIVE] ${menuType} enviado.`
+            );
+
+            console.log(
+              '[MENU INTERACTIVE] Botões:',
+              buttons.map(button => {
+                try {
+                  return JSON.parse(
+                    button.buttonParamsJson
+                  ).id;
+                } catch {
+                  return '?';
+                }
+              })
+            );
+
+          } catch (error) {
+
+            console.error(
+              `[MENU INTERACTIVE] Erro no menu ${menuType}:`,
+              error
+            );
+
+            // --------------------------------------------------------
+            // FALLBACK
+            // Se Native Flow falhar, mantém o menu antigo.
+            // --------------------------------------------------------
+
+            try {
+
+              const fallbackDesign =
+                getMenuDesignWithDefaults(
+                  nomebot,
+                  pushname
+                );
+
+              const fallbackText =
+                typeof menuFunction === 'function'
+                  ? await menuFunction(
+                      prefix,
+                      nomebot,
+                      pushname,
+                      fallbackDesign
+                    )
+                  : 'Menu não disponível';
+
+              await reply(
+                fallbackText
+              );
+
+            } catch (fallbackError) {
+
+              console.error(
+                '[MENU] Fallback também falhou:',
+                fallbackError
+              );
+
+              await reply(
+                '❌ Não foi possível carregar este menu.'
+              );
+            }
           }
-
-          // Define a mídia a ser usada
-          let mediaPath, useVideo, mediaBuffer;
-
-          if (customMediaPath) {
-            // Usa a foto personalizada do grupo
-            mediaPath = customMediaPath;
-            useVideo = false;
-            mediaBuffer = fs.readFileSync(mediaPath);
-          } else {
-            // Usa a mídia padrão
-            const menuVideoPath = __dirname + '/../midias/menu.mp4';
-            const menuImagePath = __dirname + '/../midias/menu.jpg';
-            useVideo = fs.existsSync(menuVideoPath);
-            mediaPath = useVideo ? menuVideoPath : menuImagePath;
-            mediaBuffer = fs.readFileSync(mediaPath);
-          }
-
-          // Obtém o design personalizado do menu
-          const customDesign = getMenuDesignWithDefaults(customBotName, pushname);
-
-          // Aplica o design personalizado ao menu
-          const menuText = typeof menuFunction === 'function' ?
-            (typeof menuFunction.then === 'function' ?
-              await menuFunction :
-              await menuFunction(prefix, customBotName, pushname, customDesign)) :
-            'Menu não disponível';
-
-          const lerMaisPrefix = getMenuLerMaisText();
-
-          await nazu.sendMessage(from, {
-            [useVideo ? 'video' : 'image']: mediaBuffer,
-            caption: lerMaisPrefix + menuText,
-            gifPlayback: useVideo,
-            mimetype: useVideo ? 'video/mp4' : 'image/jpeg'
-          }, {
-            quoted: info
-          });
         }
+
       case 'antipv3':
         try {
           if (!isOwner) return reply("Este comando é apenas para o meu dono 💔");
