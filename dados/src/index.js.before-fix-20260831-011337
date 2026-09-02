@@ -1,6 +1,6 @@
-import { gerarAudioLer } from './funcs/tts/ler.js';
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp'
 import { kyaraCore } from './core/kyara.js';
 function patchBaileysNewsletterFollow() {
   try {
@@ -80,7 +80,7 @@ function patchBaileysNewsletterFollow() {
 patchBaileysNewsletterFollow();
 
 // ==================== BOTÕES CLICÁVEIS NAZUNA ====================
-async function enviarBotoesNazuna(nazu, jid, quoted, prefix = '/', sender = null, pushname = '') {
+async function enviarBotoesNazuna(nazu, jid, quoted, prefix = '/') {
   try {
     console.log('[BOTOES] Montando Native Flow...');
 
@@ -522,6 +522,13 @@ import {
 } from './utils/database.js';
 import { parseCustomCommandMeta, buildUsageFromParams, parseArgsFromString, escapeRegExp, validateParamValue } from './utils/helpers.js';
 import {
+
+import {
+  buildGamesText,
+  buildPhoneText,
+  getKyaraGamesUrl,
+  isKyaraGamesCommand
+} from './html-games/kyara-games-integration.js';
   PACKAGE_JSON_PATH,
   CONFIG_FILE,
   DATABASE_DIR,
@@ -1937,113 +1944,42 @@ async function NazuninhaBotExec(nazu, info, store, messagesCache, rentalExpirati
     const getMessageText = message => {
       if (!message) return '';
 
-      // ==================== TEMPLATE BUTTON REPLY ====================
-      // WhatsApp está entregando os cliques antigos/native flow
-      // como templateButtonReplyMessage.
-      if (message.templateButtonReplyMessage?.selectedId) {
-        return String(
-          message.templateButtonReplyMessage.selectedId
-        ).trim();
-      }
+      if (message.interactiveResponseMessage) {
+        const interactiveResponse = message.interactiveResponseMessage;
 
-      // ==================== NATIVE FLOW ====================
-      const interactive = message.interactiveResponseMessage;
-
-      if (interactive) {
-        const native = interactive.nativeFlowResponseMessage;
-
-        if (native?.paramsJson) {
+        if (interactiveResponse.nativeFlowResponseMessage?.paramsJson) {
           try {
-            const params = JSON.parse(native.paramsJson);
-
-            console.log('[INTERACTIVE] paramsJson:', params);
-
-            if (params.id) {
-              return String(params.id).trim();
-            }
-
-            if (params.command) {
-              return String(params.command).trim();
-            }
-
-            if (params.button_id) {
-              return String(params.button_id).trim();
-            }
-
+            const params = JSON.parse(interactiveResponse.nativeFlowResponseMessage.paramsJson);
+            return params.id || '';
           } catch (error) {
-            console.error(
-              '[INTERACTIVE] Erro ao ler paramsJson:',
-              error.message
-            );
+            console.error('Erro ao processar resposta de single_select:', error);
           }
         }
 
-        if (interactive.selectedButtonId) {
-          return String(interactive.selectedButtonId).trim();
+        if (interactiveResponse.body?.text) {
+          return interactiveResponse.body.text;
         }
 
-        if (interactive.selectedDisplayText) {
-          return String(interactive.selectedDisplayText).trim();
+        if (interactiveResponse.selectedDisplayText) {
+          return interactiveResponse.selectedDisplayText;
         }
 
-        if (interactive.body?.text) {
-          return String(interactive.body.text).trim();
+        if (typeof interactiveResponse === 'string') {
+          return interactiveResponse;
         }
       }
 
-      // Template Button Reply / Native Flow
-      if (message.templateButtonReplyMessage?.selectedId) {
-        const selectedId =
-          message.templateButtonReplyMessage.selectedId;
-
-        console.log('[TEMPLATE BUTTON] ID:', selectedId);
-
-        return String(selectedId).trim();
-      }
-
-      // Botões antigos
-      if (message.buttonsResponseMessage?.selectedButtonId) {
-        return String(
-          message.buttonsResponseMessage.selectedButtonId
-        ).trim();
-      }
-
-      // Listas
       if (message.listResponseMessage?.singleSelectReply?.selectedRowId) {
-        return String(
-          message.listResponseMessage.singleSelectReply.selectedRowId
-        ).trim();
+        return message.listResponseMessage.singleSelectReply.selectedRowId;
       }
 
-      // Texto normal
-      return (
-        message.conversation ||
-        message.extendedTextMessage?.text ||
-        message.imageMessage?.caption ||
-        message.videoMessage?.caption ||
-        message.documentWithCaptionMessage?.message?.documentMessage?.caption ||
-        message.viewOnceMessage?.message?.imageMessage?.caption ||
-        message.viewOnceMessage?.message?.videoMessage?.caption ||
-        message.viewOnceMessageV2?.message?.imageMessage?.caption ||
-        message.viewOnceMessageV2?.message?.videoMessage?.caption ||
-        ''
-      );
+      if (message.buttonsResponseMessage?.selectedButtonId) {
+        return message.buttonsResponseMessage.selectedButtonId;
+      }
+
+      return message.conversation || message.extendedTextMessage?.text || message.imageMessage?.caption || message.videoMessage?.caption || message.documentWithCaptionMessage?.message?.documentMessage?.caption || message.viewOnceMessage?.message?.imageMessage?.caption || message.viewOnceMessage?.message?.videoMessage?.caption || message.viewOnceMessageV2?.message?.imageMessage?.caption || message.viewOnceMessageV2?.message?.videoMessage?.caption || message.editedMessage?.message?.protocolMessage?.editedMessage?.extendedTextMessage?.text || message.editedMessage?.message?.protocolMessage?.editedMessage?.imageMessage?.caption || '';
     };
-
-    // DEBUG: descobrir estrutura real do clique Native Flow
-    if (info.message?.interactiveResponseMessage) {
-      console.log(
-        '[INTERACTIVE RAW]',
-        JSON.stringify(info.message.interactiveResponseMessage, null, 2)
-      );
-    }
-
     const body = getMessageText(info.message) || info?.text || '';
-
-
-
-    console.log('[COMMAND] body recebido:', JSON.stringify(body));
-
     // ==================== INICIAR ====================
     startAutoAcceptSystem(nazu, from);
 
@@ -6149,47 +6085,120 @@ Entre em contato com o dono do bot:
       }
     }
 
-    switch (command) {
-    case 'ler': {
-      const textoLer = q?.trim();
+    
+// === KYARA GAMES AUTO INTEGRATION START ===
 
-      if (!textoLer) {
-        return reply(
-          `📖 *Como usar:*\n\n${prefix}ler sua frase aqui\n\n` +
-          `Exemplo:\n${prefix}ler Olá, eu sou a Kyara!`
-        );
-      }
+async function handleKyaraGamesFromBot() {
 
-      try {
-        await reply('🔊 Lendo...');
+  try {
 
-        const audio = await gerarAudioLer(textoLer);
-
-        await nazu.sendMessage(
-          from,
-          {
-            audio: audio.buffer,
-            mimetype: audio.mimetype,
-            ptt: true
-          },
-          {
-            quoted: info
-          }
-        );
-
-      } catch (error) {
-        console.error('[LER] Erro ao gerar áudio:', error);
-
-        await reply(
-          '❌ Não consegui transformar essa frase em voz.\n\n' +
-          `Erro: ${error.message}`
-        );
-      }
-
-      break;
+    if (!isCmd) {
+      return false;
     }
 
+    const kyaraCommand =
+      String(command || '')
+        .toLowerCase()
+        .trim();
 
+    if (
+      !isKyaraGamesCommand(
+        kyaraCommand
+      )
+    ) {
+      return false;
+    }
+
+    // ========================================================
+    // 📱 KYARA PHONE
+    // ========================================================
+
+    if (
+      kyaraCommand === 'kyaraphone'
+    ) {
+
+      await nazu.sendMessage(
+        from,
+        {
+          text:
+            buildPhoneText(
+              prefix
+            ) +
+            '\n\n🌐 http://127.0.0.1:8787/games'
+        },
+        {
+          quoted: info
+        }
+      );
+
+      return true;
+    }
+
+    // ========================================================
+    // 🎮 GAMES
+    // ========================================================
+
+    const gamesText =
+      buildGamesText(prefix);
+
+    const gamesUrl =
+      getKyaraGamesUrl();
+
+    await nazu.sendMessage(
+      from,
+      {
+        text:
+          gamesText +
+          '\n\n👇 *ABRIR CELULAR*' +
+          `\n${gamesUrl}`
+      },
+      {
+        quoted: info
+      }
+    );
+
+    return true;
+
+  } catch (error) {
+
+    console.error(
+      '[KYARA GAMES BOT]',
+      error
+    );
+
+    await nazu.sendMessage(
+      from,
+      {
+        text:
+          '❌ Erro ao abrir o Kyara Games.'
+      },
+      {
+        quoted: info
+      }
+    );
+
+    return true;
+  }
+}
+
+// === KYARA GAMES AUTO INTEGRATION END ===
+
+
+// === KYARA GAMES CALL START ===
+
+if (isCmd) {
+
+  const kyaraGamesHandled =
+    await handleKyaraGamesFromBot();
+
+  if (kyaraGamesHandled) {
+    return;
+  }
+}
+
+// === KYARA GAMES CALL END ===
+
+switch (command) {
 
       case 'roles':
       case 'role.lista':
@@ -21036,258 +21045,104 @@ Se não definir cores, a API usa padrão automaticamente.`
       case 'comandos':
       case 'commands':
         try {
+          // Verifica se o grupo tem personalização
           let customBotName = nomebot;
           let customMediaPath = null;
 
           if (isGroup && isGroupCustomizationEnabled()) {
             const groupCustom = getGroupCustomization(from);
-
             if (groupCustom) {
               if (groupCustom.customName) {
                 customBotName = groupCustom.customName;
               }
-
-              if (
-                groupCustom.customPhoto &&
-                fs.existsSync(groupCustom.customPhoto)
-              ) {
+              if (groupCustom.customPhoto && fs.existsSync(groupCustom.customPhoto)) {
                 customMediaPath = groupCustom.customPhoto;
               }
             }
           }
 
-          let mediaPath;
-          let useVideo;
-          let mediaBuffer;
+          // Define a mídia a ser usada
+          let mediaPath, useVideo, mediaBuffer;
 
           if (customMediaPath) {
+            // Usa a foto personalizada do grupo
             mediaPath = customMediaPath;
             useVideo = false;
+            mediaBuffer = fs.readFileSync(mediaPath);
           } else {
+            // Usa a mídia padrão
             const menuVideoPath = __dirname + '/../midias/menu.mp4';
             const menuImagePath = __dirname + '/../midias/menu.jpg';
-
             useVideo = fs.existsSync(menuVideoPath);
             mediaPath = useVideo ? menuVideoPath : menuImagePath;
+            mediaBuffer = fs.readFileSync(mediaPath);
           }
 
-          mediaBuffer = fs.readFileSync(mediaPath);
-
-          const customDesign = getMenuDesignWithDefaults(
-            customBotName,
-            pushname
-          );
-
-          const menuText = await menu(
-            prefix,
-            customBotName,
-            pushname,
-            customDesign
-          );
-
+          const customDesign = getMenuDesignWithDefaults(customBotName, pushname);
+          const menuText = await menu(prefix, customBotName, pushname, customDesign);
           const lerMaisPrefix = getMenuLerMaisText();
 
-          /*
-           * MENU PRINCIPAL CLICÁVEL
-           * A legenda continua sendo o menu normal.
-           * Os botões são enviados na MESMA mensagem.
-           */
-
-          const buttons = [
-            {
-              name: 'quick_reply',
-              buttonParamsJson: JSON.stringify({
-                display_text: '📥 Downloads',
-                id: `${prefix}menudown`
-              })
-            },
-            {
-              name: 'quick_reply',
-              buttonParamsJson: JSON.stringify({
-                display_text: '🎨 Logos',
-                id: `${prefix}menulogos`
-              })
-            },
-            {
-              name: 'quick_reply',
-              buttonParamsJson: JSON.stringify({
-                display_text: '📝 Edits',
-                id: `${prefix}menuedits`
-              })
-            },
-            {
-              name: 'quick_reply',
-              buttonParamsJson: JSON.stringify({
-                display_text: '🛡️ Admin',
-                id: `${prefix}menuadm`
-              })
-            },
-            {
-              name: 'quick_reply',
-              buttonParamsJson: JSON.stringify({
-                display_text: '🎮 RPG',
-                id: `${prefix}menurpg`
-              })
-            }
-          ];
-
-          const textoInterativo =
-            `🌸 *${customBotName}*\\n\\n` +
-            `👤 @${sender?.split('@')[0] || pushname || 'usuário'}\\n\\n` +
-            `📂 *Escolha uma categoria abaixo:*`;
-
-          const msg = generateWAMessageFromContent(
-            from,
-            {
-              viewOnceMessage: {
-                message: {
-                  messageContextInfo: {
-                    deviceListMetadata: {},
-                    deviceListMetadataVersion: 2
-                  },
-
-                  interactiveMessage: {
-                    body: {
-                      text: textoInterativo,
-                      contextInfo: sender
-                        ? {
-                            mentionedJid: [sender]
-                          }
-                        : undefined
-                    },
-
-                    footer: {
-                      text: '© Kyara'
-                    },
-
-                    nativeFlowMessage: {
-                      buttons,
-                      messageParamsJson: '{}',
-                      messageVersion: 1
-                    }
-                  }
-                }
-              }
-            },
-            {
-              quoted: info,
-              userJid: nazu?.user?.id
-            }
-          );
-
-          const bizNode = {
-            tag: 'biz',
-            attrs: {
-              actual_actors: '2',
-              host_storage: '2',
-              privacy_mode_ts: String(
-                Math.floor(Date.now() / 1000) - 77980457
-              )
-            },
-            content: [
-              {
-                tag: 'interactive',
-                attrs: {
-                  type: 'native_flow',
-                  v: '1'
-                },
-                content: [
-                  {
-                    tag: 'native_flow',
-                    attrs: {
-                      v: '9',
-                      name: 'mixed'
-                    }
-                  }
-                ]
-              },
-              {
-                tag: 'quality_control',
-                attrs: {
-                  source_type: 'third_party'
-                }
-              }
-            ]
-          };
-
-          const isGroupChat = from.endsWith('@g.us');
-
-          const additionalNodes = isGroupChat
-            ? [bizNode]
-            : [
-                {
-                  tag: 'bot',
-                  attrs: {
-                    biz_bot: '1'
-                  }
-                },
-                bizNode
-              ];
-
-          /*
-           * Envia áudio separadamente, caso esteja configurado.
-           */
+          // Envia o áudio primeiro se configurado
           if (isMenuAudioEnabled()) {
             const audioPath = getMenuAudioPath();
-
             if (audioPath && fs.existsSync(audioPath)) {
               const audioBuffer = fs.readFileSync(audioPath);
-
-              await nazu.sendMessage(
-                from,
-                {
-                  audio: audioBuffer,
-                  mimetype: 'audio/mpeg',
-                  ptt: false
-                },
-                {
+              await nazu.sendMessage(from, {
+                audio: audioBuffer,
+                mimetype: 'audio/mpeg',
+                ptt: false
+              }, {
+                quoted: info
+              }).then(async () => {
+                // Depois envia o menu
+                await nazu.sendMessage(from, {
+                  [useVideo ? 'video' : 'image']: mediaBuffer,
+                  caption: lerMaisPrefix + menuText,
+                  gifPlayback: useVideo,
+                  mimetype: useVideo ? 'video/mp4' : 'image/jpeg'
+                }, {
                   quoted: info
-                }
-              );
+                });
+              });
+            } else {
+              // Se não tem áudio válido, envia só o menu
+              await nazu.sendMessage(from, {
+                [useVideo ? 'video' : 'image']: mediaBuffer,
+                caption: lerMaisPrefix + menuText,
+                gifPlayback: useVideo,
+                mimetype: useVideo ? 'video/mp4' : 'image/jpeg'
+              }, {
+                quoted: info
+              });
             }
+          } else {
+            // Se áudio não está ativo, envia só o menu
+            await nazu.sendMessage(from, {
+              [useVideo ? 'video' : 'image']: mediaBuffer,
+              caption: lerMaisPrefix + menuText,
+              gifPlayback: useVideo,
+              mimetype: useVideo ? 'video/mp4' : 'image/jpeg'
+            }, {
+              quoted: info
+            });
           }
-
-          /*
-           * Envia o menu clicável.
-           *
-           * IMPORTANTE:
-           * Não existe mais um segundo enviarBotoesNazuna()
-           * depois daqui.
-           */
-          await nazu.relayMessage(
-            from,
-            msg.message,
-            {
-              messageId: msg.key.id,
-              additionalNodes
-            }
-          );
-
-          console.log('[MENU] ✅ Menu principal clicável enviado!');
-          console.log(
-            '[MENU] Botões:',
-            buttons.map(b => JSON.parse(b.buttonParamsJson).id)
-          );
-
         } catch (error) {
-          console.error('Erro ao enviar menu interativo:', error);
-
-          const customDesign = getMenuDesignWithDefaults(
-            nomebot,
-            pushname
-          );
-
-          const menuText = await menu(
-            prefix,
-            nomebot,
-            pushname,
-            customDesign
-          );
-
-          await reply(
-            `${menuText}\\n\\n⚠️ *Nota*: Ocorreu um erro ao carregar o menu interativo.`
-          );
+          console.error('Erro ao enviar menu:', error);
+          const customDesign = getMenuDesignWithDefaults(nomebot, pushname);
+          const menuText = await menu(prefix, nomebot, pushname, customDesign);
+          await reply(`${menuText}\n\n⚠️ *Nota*: Ocorreu um erro ao carregar a mídia do menu.`);
         }
+        
+        
+
+
+
+              
+        
+
+
+        // BOTOES CLICAVEIS
+        await enviarBotoesNazuna(nazu, from, info, prefix);
 
         break;
 
@@ -25842,9 +25697,14 @@ ${prefix}togglecmdvip premium_ia off`);
 
             fs.writeFileSync(inputWebp, stickerBuffer);
 
-            await execAsync(
-              `ffmpeg -i "${inputWebp}" -vf "fps=15,scale=trunc(iw/2)*2:trunc(ih/2)*2" -loop 0 -y "${outputGif}"`
-            );
+            await sharp(stickerBuffer, {
+              animated: true
+            })
+              .gif({
+                loop: 0,
+                effort: 3
+              })
+              .toFile(outputGif);
 
             await execAsync(
               `ffmpeg -i "${outputGif}" -movflags faststart -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -y "${outputMp4}"`
